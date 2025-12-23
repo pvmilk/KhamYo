@@ -48,13 +48,17 @@ def counts(l: list) -> defaultdict:
 
 def replace(sentence: str, top_k: int = 2) -> list:
     sent_words = tokenizer.word_tokenize(sentence)
+    original_sent_words = copy.copy(sent_words)
     c = counts(sent_words)
     if c == {}:
-        return [(sentence,None)]
+        return [(sentence, None, [])]
     del c
 
     list_index = []
     list_temp = []
+    
+    single_subs = []
+
     j = 0
     for i,w in enumerate(sent_words):
         if w in list_th:
@@ -62,20 +66,40 @@ def replace(sentence: str, top_k: int = 2) -> list:
                 list_index.append(i)
                 list_temp.append(worddict[w])
             else:
-                sent_words[i] = worddict[w][0]
+                original_word = sent_words[i]
+                new_word = worddict[w][0]
+                sent_words[i] = new_word
+                single_subs.append((original_word, new_word))
+
     sum_m = list(itertools.product(*list_temp))
 
-    list_sent = []
+    if not sum_m and single_subs:
+        return [(''.join(sent_words), None, single_subs)]
+    if not sum_m and not single_subs:
+        return [(sentence, None, [])]
+
+    list_sent_info = [] # Will store (sentence_str, substitutions)
     sentence_embedding = model.encode(sentence, convert_to_tensor=True)
     for i,v in enumerate(sum_m):
         _t = copy.copy(sent_words)
+        
+        current_subs = single_subs[:]
         for j,w in enumerate(v):
             _t[list_index[j]] = w
-        list_sent.append(''.join(_t))
+            original_word = original_sent_words[list_index[j]]
+            current_subs.append((original_word, w))
 
-    if len(sum_m) == 1:
+        list_sent_info.append( (''.join(_t), current_subs) )
+
+    list_sent = [info[0] for info in list_sent_info]
+
+    if len(sum_m) <= 1:
+        if not list_sent:
+            return [(''.join(sent_words), None, single_subs)]
         s2 = model.encode(list_sent[0], convert_to_tensor=True)
-        return [(list_sent[0],util.pytorch_cos_sim(sentence_embedding,s2))]
+        score = util.pytorch_cos_sim(sentence_embedding, s2)
+        subs = list_sent_info[0][1] if list_sent_info else []
+        return [(list_sent[0], score, subs)]
 
     corpus_embeddings = model.encode(list_sent, convert_to_tensor=True)
     cos_scores = util.pytorch_cos_sim(sentence_embedding, corpus_embeddings)[0]
@@ -84,5 +108,12 @@ def replace(sentence: str, top_k: int = 2) -> list:
     if cos_scores.is_cuda:
         cos_scores = cos_scores.to('cpu')
 
-    top_results = np.argpartition(-cos_scores, range(top_k))[0:top_k]
-    return [(list_sent[i], cos_scores[i]) for i in top_results[0:top_k].tolist()]
+    top_results_indices = np.argpartition(-cos_scores, range(min(top_k, len(list_sent))))[0:top_k]
+    
+    final_results = []
+    for i in top_results_indices.tolist():
+        sent_str, subs = list_sent_info[i]
+        score = cos_scores[i]
+        final_results.append((sent_str, score, subs))
+        
+    return final_results
