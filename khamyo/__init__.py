@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
 __all__ = [
-    'replace'
+    'Khamyo'
 ]
-from khamyo.core import replace
+from khamyo.core import Khamyo
