@@ -26,15 +26,53 @@ class Khamyo:
         self.list_th = list(self.worddict.keys())
         self.tokenizer = Tokenizer(self.list_th + list(thai_words()), engine='newmm')
 
-    def __del__(self):
-        print("Khamyo instance is being destroyed, attempting to free model and tokenizer.")
-        if hasattr(self, 'model'):
-            del self.model
-        if hasattr(self, 'tokenizer'):
-            del self.tokenizer
+    def __enter__(self):
+        return self
 
-        gc.collect()
-        torch.cuda.empty_cache()  # Only if using GPU
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def close(self):
+        model = getattr(self, 'model', None)
+        tokenizer = getattr(self, 'tokenizer', None)
+
+        # Check if already closed
+        if model is None and tokenizer is None:
+            return
+
+        print("Khamyo instance is being closed, attempting to free model and tokenizer.")
+
+        if hasattr(self, 'model'):
+            print("attempting to free model.")
+            del model
+            self.model = None
+
+        if hasattr(self, 'tokenizer'):
+            print("attempting to free tokenizer.")
+            del tokenizer
+            self.tokenizer = None
+
+        # Free dictionaries
+        self.worddict = None
+        self.list_th = None
+
+        # Safely run garbage collection
+        if gc is not None:
+            try:
+                gc.collect()
+            except Exception:
+                pass
+
+        # Safely clear CUDA cache
+        if torch is not None:
+            try:
+                if hasattr(torch, 'cuda') and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
+
+    def __del__(self):
+        self.close()
 
     def merge(self, input_list: list) -> list:
         list_sent = []
